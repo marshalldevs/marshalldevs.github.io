@@ -57,13 +57,57 @@
     <!-- Main container with semantic structure -->
     <div class="container mx-auto px-4 py-8 max-w-4xl">
         
-        <!-- Page header with title and instructions -->
+        <!-- Page header with title, instructions, and settings -->
         <header class="mb-8">
-            <h1 class="text-3xl font-bold text-gray-800 mb-2">Dynamic Row Editor</h1>
-            <p class="text-gray-600">
-                Use arrow keys to navigate rows, Enter to edit, Escape to cancel editing.
-                Fill placeholders with single words, Enter to move to next placeholder.
-            </p>
+            <div class="flex justify-between items-start">
+                <div>
+                    <div class="flex justify-between">
+                        <h1 class="text-3xl font-bold text-gray-800 mb-2">Dynamic Row Editor</h1>
+                        <!-- Settings Dropdown -->
+                        <div class="relative">
+                            <button 
+                                id="settings-btn"
+                                class="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 focus-enhanced transition-colors flex items-center gap-2"
+                                aria-label="Open settings menu"
+                                aria-expanded="false">
+                                ⚙️ Settings
+                                <span id="settings-arrow" class="transform transition-transform">▼</span>
+                            </button>
+                            
+                            <!-- Dropdown Menu -->
+                            <div 
+                                id="settings-dropdown"
+                                class="absolute right-0 mt-2 w-64 bg-white border border-gray-300 rounded-md shadow-lg z-10 hidden"
+                                role="menu"
+                                aria-labelledby="settings-btn">
+                                
+                                <!-- Dark Mode Button -->
+                                <button 
+                                    id="dark-mode-btn"
+                                    class="w-full px-4 py-3 text-left hover:bg-gray-50 border-b border-gray-200 focus-enhanced"
+                                    role="menuitem">
+                                    🌙 Dark Mode
+                                </button>
+                                
+                                <!-- Ctrl+C Clears Checkbox -->
+                                <div class="px-4 py-3">
+                                    <label class="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+                                        <input 
+                                            type="checkbox" 
+                                            id="ctrl-c-clears-checkbox"
+                                            class="w-3 h-3 text-blue-600 focus-enhanced rounded">
+                                        <span class="text-sm">Ctrl+C also Clears Text Area</span>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <p class="text-gray-600">
+                        Use arrow keys to navigate rows, Enter to edit, Escape to cancel editing.
+                        Fill placeholders with single words, Enter to move to next placeholder.
+                    </p>
+                </div>
+            </div>
         </header>
         
         <!-- Main content area -->
@@ -92,7 +136,6 @@
                     <textarea 
                         id="output-textarea"
                         class="w-full p-3 border border-gray-300 rounded-md focus-enhanced output-textarea font-mono text-sm"
-                        readonly
                         placeholder="Completed rows will appear here..."
                         aria-live="polite"
                         aria-label="Completed rows output area">
@@ -101,6 +144,12 @@
                 
                 <!-- Action buttons -->
                 <div class="flex gap-3">
+                    <button 
+                        id="copy-clear-btn"
+                        class="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 focus-enhanced transition-colors"
+                        aria-label="Copy all completed rows to clipboard and clear">
+                        📋🗑️ Copy and Clear All
+                    </button>
                     <button 
                         id="copy-btn"
                         class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus-enhanced transition-colors"
@@ -136,7 +185,7 @@
         const AppState = {
             // Template strings with {} placeholders for user input
             templates: [
-                "{}'s single word split ({})"
+                "{}:{}'s single word split ({})"
             ],
             
             // Current state tracking
@@ -149,7 +198,14 @@
             currentInputs: [],
             
             // Completed rows storage
-            completedRows: []
+            completedRows: [],
+            
+            // Settings and preferences
+            settingsOpen: false,
+            ctrlCAlsoClears: false,
+            
+            // Undo functionality
+            undoStack: []
         };
 
         // DOM element references
@@ -157,8 +213,14 @@
             rowsContainer: null,
             outputTextarea: null,
             copyBtn: null,
+            copyClearBtn: null,
             clearBtn: null,
-            statusMessage: null
+            statusMessage: null,
+            settingsBtn: null,
+            settingsDropdown: null,
+            settingsArrow: null,
+            darkModeBtn: null,
+            ctrlCClearsCheckbox: null
         };
 
         /**
@@ -170,8 +232,17 @@
             Elements.rowsContainer = document.getElementById('rows-container');
             Elements.outputTextarea = document.getElementById('output-textarea');
             Elements.copyBtn = document.getElementById('copy-btn');
+            Elements.copyClearBtn = document.getElementById('copy-clear-btn');
             Elements.clearBtn = document.getElementById('clear-btn');
             Elements.statusMessage = document.getElementById('status-message');
+            Elements.settingsBtn = document.getElementById('settings-btn');
+            Elements.settingsDropdown = document.getElementById('settings-dropdown');
+            Elements.settingsArrow = document.getElementById('settings-arrow');
+            Elements.darkModeBtn = document.getElementById('dark-mode-btn');
+            Elements.ctrlCClearsCheckbox = document.getElementById('ctrl-c-clears-checkbox');
+
+            // Load settings from cookies
+            loadSettings();
 
             // Create initial template rows
             createTemplateRows();
@@ -402,6 +473,13 @@
                 completedString += AppState.currentInputs[i] + (parts[i + 1] || '');
             }
             
+            // Save current state for undo functionality
+            AppState.undoStack.push({
+                action: 'append',
+                data: completedString,
+                previousContent: AppState.completedRows.slice()
+            });
+            
             // Add to completed rows
             AppState.completedRows.push(completedString);
             updateOutputTextarea();
@@ -440,6 +518,95 @@
         }
 
         /**
+         * Toggle the settings dropdown visibility
+         */
+        function toggleSettingsDropdown() {
+            AppState.settingsOpen = !AppState.settingsOpen;
+            
+            if (AppState.settingsOpen) {
+                Elements.settingsDropdown.classList.remove('hidden');
+                Elements.settingsArrow.style.transform = 'rotate(180deg)';
+                Elements.settingsBtn.setAttribute('aria-expanded', 'true');
+            } else {
+                Elements.settingsDropdown.classList.add('hidden');
+                Elements.settingsArrow.style.transform = 'rotate(0deg)';
+                Elements.settingsBtn.setAttribute('aria-expanded', 'false');
+            }
+        }
+
+        /**
+         * Close settings dropdown when clicking outside
+         */
+        function closeSettingsDropdown() {
+            if (AppState.settingsOpen) {
+                AppState.settingsOpen = false;
+                Elements.settingsDropdown.classList.add('hidden');
+                Elements.settingsArrow.style.transform = 'rotate(0deg)';
+                Elements.settingsBtn.setAttribute('aria-expanded', 'false');
+            }
+        }
+
+        /**
+         * Load settings from cookies
+         */
+        function loadSettings() {
+            // Load Ctrl+C also clears setting
+            const ctrlCClearsCookie = getCookie('ctrlCAlsoClears');
+            if (ctrlCClearsCookie === 'true') {
+                AppState.ctrlCAlsoClears = true;
+                Elements.ctrlCClearsCheckbox.checked = true;
+            }
+        }
+
+        /**
+         * Save settings to cookies
+         */
+        function saveSettings() {
+            setCookie('ctrlCAlsoClears', AppState.ctrlCAlsoClears.toString(), 365);
+        }
+
+        /**
+         * Set a cookie
+         * @param {string} name - Cookie name
+         * @param {string} value - Cookie value
+         * @param {number} days - Days until expiration
+         */
+        function setCookie(name, value, days) {
+            const expires = new Date();
+            expires.setTime(expires.getTime() + (days * 24 * 60 * 60 * 1000));
+            document.cookie = `${name}=${value};expires=${expires.toUTCString()};path=/`;
+        }
+
+        /**
+         * Get a cookie value
+         * @param {string} name - Cookie name
+         * @returns {string|null} - Cookie value or null if not found
+         */
+        function getCookie(name) {
+            const nameEQ = name + "=";
+            const ca = document.cookie.split(';');
+            for (let i = 0; i < ca.length; i++) {
+                let c = ca[i];
+                while (c.charAt(0) === ' ') c = c.substring(1, c.length);
+                if (c.indexOf(nameEQ) === 0) return c.substring(nameEQ.length, c.length);
+            }
+            return null;
+        }
+
+        /**
+         * Handle checkbox state change
+         */
+        function handleCtrlCClearsChange() {
+            AppState.ctrlCAlsoClears = Elements.ctrlCClearsCheckbox.checked;
+            saveSettings();
+            
+            const message = AppState.ctrlCAlsoClears 
+                ? 'Ctrl+C will now copy and clear content.' 
+                : 'Ctrl+C will now only copy content.';
+            showStatusMessage(message, 'info');
+        }
+
+        /**
          * Update the output textarea with all completed rows
          */
         function updateOutputTextarea() {
@@ -453,19 +620,56 @@
          * Copy all completed rows to clipboard
          */
         async function copyToClipboard() {
-            if (AppState.completedRows.length === 0) {
-                showStatusMessage('No completed rows to copy.', 'warning');
+            const content = Elements.outputTextarea.value;
+            
+            if (!content.trim()) {
+                showStatusMessage('No content to copy.', 'warning');
                 return;
             }
             
             try {
-                await navigator.clipboard.writeText(Elements.outputTextarea.value);
-                showStatusMessage(`Copied ${AppState.completedRows.length} rows to clipboard.`, 'success');
+                await navigator.clipboard.writeText(content);
+                showStatusMessage(`Copied content to clipboard.`, 'success');
+                
+                // If Ctrl+C also clears is enabled, clear after copying
+                if (AppState.ctrlCAlsoClears) {
+                    clearAll();
+                    showStatusMessage('Content copied and cleared.', 'success');
+                }
             } catch (err) {
                 // Fallback for older browsers
                 Elements.outputTextarea.select();
                 document.execCommand('copy');
                 showStatusMessage('Copied to clipboard (fallback method).', 'success');
+                
+                if (AppState.ctrlCAlsoClears) {
+                    clearAll();
+                    showStatusMessage('Content copied and cleared.', 'success');
+                }
+            }
+        }
+
+        /**
+         * Copy content to clipboard and then clear everything
+         */
+        async function copyAndClearAll() {
+            const content = Elements.outputTextarea.value;
+            
+            if (!content.trim()) {
+                showStatusMessage('No content to copy.', 'warning');
+                return;
+            }
+            
+            try {
+                await navigator.clipboard.writeText(content);
+                clearAll();
+                showStatusMessage('Content copied to clipboard and cleared.', 'success');
+            } catch (err) {
+                // Fallback for older browsers
+                Elements.outputTextarea.select();
+                document.execCommand('copy');
+                clearAll();
+                showStatusMessage('Content copied (fallback) and cleared.', 'success');
             }
         }
 
@@ -473,10 +677,21 @@
          * Clear all completed rows and reset all template rows
          */
         function clearAll() {
-            if (AppState.completedRows.length === 0) {
+            const hadContent = AppState.completedRows.length > 0 || Elements.outputTextarea.value.trim();
+            
+            if (!hadContent) {
                 showStatusMessage('Nothing to clear.', 'info');
                 return;
             }
+            
+            // Save current state for undo functionality
+            AppState.undoStack.push({
+                action: 'clear',
+                data: {
+                    completedRows: AppState.completedRows.slice(),
+                    textareaContent: Elements.outputTextarea.value
+                }
+            });
             
             // Exit edit mode if active
             if (AppState.isEditMode) {
@@ -485,7 +700,7 @@
             
             // Clear completed rows
             AppState.completedRows = [];
-            updateOutputTextarea();
+            Elements.outputTextarea.value = '';
             
             // Reset all template rows to their original state
             const allRows = Elements.rowsContainer.querySelectorAll('[data-row-index]');
@@ -493,7 +708,31 @@
                 updateRowDisplay(row, AppState.templates[index], []);
             });
             
-            showStatusMessage('All rows cleared and templates reset.', 'success');
+            showStatusMessage('All content cleared and templates reset.', 'success');
+        }
+
+        /**
+         * Undo the last operation (append or clear)
+         */
+        function undoLastOperation() {
+            if (AppState.undoStack.length === 0) {
+                showStatusMessage('Nothing to undo.', 'warning');
+                return;
+            }
+            
+            const lastOperation = AppState.undoStack.pop();
+            
+            if (lastOperation.action === 'append') {
+                // Undo append - restore previous completed rows
+                AppState.completedRows = lastOperation.previousContent;
+                updateOutputTextarea();
+                showStatusMessage('Undid last row append.', 'success');
+            } else if (lastOperation.action === 'clear') {
+                // Undo clear - restore previous state
+                AppState.completedRows = lastOperation.data.completedRows;
+                Elements.outputTextarea.value = lastOperation.data.textareaContent;
+                showStatusMessage('Undid clear operation.', 'success');
+            }
         }
 
         /**
@@ -538,7 +777,29 @@
             
             // Button event listeners
             Elements.copyBtn.addEventListener('click', copyToClipboard);
+            Elements.copyClearBtn.addEventListener('click', copyAndClearAll);
             Elements.clearBtn.addEventListener('click', clearAll);
+            
+            // Settings dropdown listeners
+            Elements.settingsBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                toggleSettingsDropdown();
+            });
+            
+            // Dark mode button (placeholder functionality)
+            Elements.darkModeBtn.addEventListener('click', () => {
+                showStatusMessage('Dark mode functionality not yet implemented.', 'info');
+            });
+            
+            // Ctrl+C clears checkbox listener
+            Elements.ctrlCClearsCheckbox.addEventListener('change', handleCtrlCClearsChange);
+            
+            // Close dropdown when clicking outside
+            document.addEventListener('click', (e) => {
+                if (!Elements.settingsDropdown.contains(e.target) && !Elements.settingsBtn.contains(e.target)) {
+                    closeSettingsDropdown();
+                }
+            });
             
             // Prevent default behavior on row elements
             Elements.rowsContainer.addEventListener('keydown', (e) => {
@@ -554,7 +815,22 @@
          * @param {KeyboardEvent} e - Keyboard event
          */
         function handleGlobalKeydown(e) {
-            // Don't interfere with input fields or other controls
+            // Handle global shortcuts
+            if (e.ctrlKey || e.metaKey) {
+                if (e.key === 'c' || e.key === 'C') {
+                    // Global Ctrl+C: Copy textarea content
+                    e.preventDefault();
+                    copyToClipboard();
+                    return;
+                } else if (e.key === 'z' || e.key === 'Z') {
+                    // Global Ctrl+Z: Undo last operation
+                    e.preventDefault();
+                    undoLastOperation();
+                    return;
+                }
+            }
+            
+            // Don't interfere with input fields or other controls (except for global shortcuts)
             if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'BUTTON') {
                 return;
             }
