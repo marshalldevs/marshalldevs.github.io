@@ -559,6 +559,12 @@
             if (ctrlCClearsCookie === 'true') {
                 AppState.ctrlCAlsoClears = true;
                 Elements.ctrlCClearsCheckbox.checked = true;
+            } else if (ctrlCClearsCookie === null) {
+                // Cookie not set, ask for consent
+                const consent = confirm('This app uses cookies to save your settings. Allow cookies?');
+                if (consent) {
+                    setCookie('ctrlCAlsoClears', 'false', 365);
+                }
             }
         }
 
