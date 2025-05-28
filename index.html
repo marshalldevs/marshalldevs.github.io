@@ -3,9 +3,599 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Document</title>
+    <title>Dynamic Row Editor</title>
+    
+    <!-- Tailwind CSS CDN for utility-first styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Custom CSS for specific overrides and additional styling -->
+    <style>
+        /* Custom styles that extend Tailwind functionality */
+        
+        /* Focus ring enhancement for better accessibility */
+        .focus-enhanced:focus {
+            outline: 2px solid #3b82f6;
+            outline-offset: 2px;
+        }
+        
+        /* Smooth transitions for row state changes */
+        .row-transition {
+            transition: all 0.2s ease-in-out;
+        }
+        
+        /* Enhanced visual feedback for focused rows */
+        .row-focused {
+            transform: translateX(4px);
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+        
+        /* Styling for placeholder inputs during edit mode */
+        .placeholder-input {
+            min-width: 60px;
+            background-color: rgba(59, 130, 246, 0.1);
+            border: 1px solid #3b82f6;
+            border-radius: 4px;
+            padding: 2px 6px;
+            font-family: inherit;
+            font-size: inherit;
+        }
+        
+        /* Visual indicator for edit mode */
+        .edit-mode {
+            background-color: rgba(34, 197, 94, 0.05);
+            border-left: 4px solid #22c55e;
+        }
+        
+        /* Ensure textarea maintains consistent styling */
+        .output-textarea {
+            resize: vertical;
+            min-height: 120px;
+        }
+    </style>
 </head>
-<body>
-    Hello
+<body class="bg-gray-50 min-h-screen">
+    <!-- Main container with semantic structure -->
+    <div class="container mx-auto px-4 py-8 max-w-4xl">
+        
+        <!-- Page header with title and instructions -->
+        <header class="mb-8">
+            <h1 class="text-3xl font-bold text-gray-800 mb-2">Dynamic Row Editor</h1>
+            <p class="text-gray-600">
+                Use arrow keys to navigate rows, Enter to edit, Escape to cancel editing.
+                Fill placeholders with single words, Enter to move to next placeholder.
+            </p>
+        </header>
+        
+        <!-- Main content area -->
+        <main class="space-y-8">
+            
+            <!-- Top Section: Editable Template Rows -->
+            <section class="bg-white rounded-lg shadow-sm border p-6">
+                <h2 class="text-xl font-semibold text-gray-800 mb-4">Template Rows</h2>
+                <div id="rows-container" class="space-y-3" role="group" aria-label="Editable template rows">
+                    <!-- Rows will be dynamically generated here -->
+                </div>
+                <div class="mt-4 text-sm text-gray-500">
+                    <kbd class="px-2 py-1 bg-gray-100 rounded">↑↓</kbd> Navigate • 
+                    <kbd class="px-2 py-1 bg-gray-100 rounded">Enter</kbd> Edit • 
+                    <kbd class="px-2 py-1 bg-gray-100 rounded">Esc</kbd> Cancel
+                </div>
+            </section>
+            
+            <!-- Bottom Section: Output and Controls -->
+            <section class="bg-white rounded-lg shadow-sm border p-6">
+                <h2 class="text-xl font-semibold text-gray-800 mb-4">Completed Rows</h2>
+                
+                <!-- Output textarea for completed rows -->
+                <div class="mb-4">
+                    <label for="output-textarea" class="sr-only">Completed rows output</label>
+                    <textarea 
+                        id="output-textarea"
+                        class="w-full p-3 border border-gray-300 rounded-md focus-enhanced output-textarea font-mono text-sm"
+                        readonly
+                        placeholder="Completed rows will appear here..."
+                        aria-live="polite"
+                        aria-label="Completed rows output area">
+                    </textarea>
+                </div>
+                
+                <!-- Action buttons -->
+                <div class="flex gap-3">
+                    <button 
+                        id="copy-btn"
+                        class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus-enhanced transition-colors"
+                        aria-label="Copy all completed rows to clipboard">
+                        📋 Copy All
+                    </button>
+                    <button 
+                        id="clear-btn"
+                        class="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 focus-enhanced transition-colors"
+                        aria-label="Clear all completed rows and reset templates">
+                        🗑️ Clear All
+                    </button>
+                </div>
+                
+                <!-- Status message area -->
+                <div id="status-message" class="mt-3 text-sm" role="status" aria-live="polite"></div>
+            </section>
+        </main>
+    </div>
+
+    <script>
+        /**
+         * Dynamic Row Editor Application
+         * 
+         * This application manages editable template rows where users can:
+         * 1. Navigate between rows using arrow keys
+         * 2. Edit rows by pressing Enter to fill placeholders
+         * 3. Complete rows to add them to output area
+         * 4. Copy or clear all completed content
+         */
+
+        // Application state and configuration
+        const AppState = {
+            // Template strings with {} placeholders for user input
+            templates: [
+                "{}'s single word split ({})"
+            ],
+            
+            // Current state tracking
+            currentFocusIndex: 0,
+            editingRowIndex: -1,
+            isEditMode: false,
+            currentPlaceholderIndex: 0,
+            
+            // Storage for user inputs during editing
+            currentInputs: [],
+            
+            // Completed rows storage
+            completedRows: []
+        };
+
+        // DOM element references
+        const Elements = {
+            rowsContainer: null,
+            outputTextarea: null,
+            copyBtn: null,
+            clearBtn: null,
+            statusMessage: null
+        };
+
+        /**
+         * Initialize the application
+         * Sets up DOM references, creates initial rows, and attaches event listeners
+         */
+        function initializeApp() {
+            // Get DOM element references
+            Elements.rowsContainer = document.getElementById('rows-container');
+            Elements.outputTextarea = document.getElementById('output-textarea');
+            Elements.copyBtn = document.getElementById('copy-btn');
+            Elements.clearBtn = document.getElementById('clear-btn');
+            Elements.statusMessage = document.getElementById('status-message');
+
+            // Create initial template rows
+            createTemplateRows();
+            
+            // Set initial focus
+            updateRowFocus();
+            
+            // Attach event listeners
+            attachEventListeners();
+            
+            showStatusMessage('Application ready. Use arrow keys to navigate rows.', 'info');
+        }
+
+        /**
+         * Create DOM elements for each template row
+         * Each row displays the template with visual placeholders
+         */
+        function createTemplateRows() {
+            AppState.templates.forEach((template, index) => {
+                const rowElement = createRowElement(template, index);
+                Elements.rowsContainer.appendChild(rowElement);
+            });
+        }
+
+        /**
+         * Create a single row element with proper accessibility attributes
+         * @param {string} template - Template string with {} placeholders
+         * @param {number} index - Row index for identification
+         * @returns {HTMLElement} - Configured row element
+         */
+        function createRowElement(template, index) {
+            const rowDiv = document.createElement('div');
+            rowDiv.className = 'p-4 border border-gray-200 rounded-md cursor-pointer row-transition focus-enhanced';
+            rowDiv.tabIndex = 0;
+            rowDiv.setAttribute('role', 'button');
+            rowDiv.setAttribute('aria-label', `Template row ${index + 1}: ${template.replace(/\{\}/g, 'placeholder')}`);
+            rowDiv.dataset.rowIndex = index;
+            
+            // Create the visual representation of the template
+            updateRowDisplay(rowDiv, template, []);
+            
+            return rowDiv;
+        }
+
+        /**
+         * Update the visual display of a row based on current state
+         * @param {HTMLElement} rowElement - The row DOM element
+         * @param {string} template - Template string
+         * @param {Array} inputs - Current user inputs for this row
+         */
+        function updateRowDisplay(rowElement, template, inputs) {
+            const parts = template.split('{}');
+            const displayHTML = [];
+            
+            // Build HTML representation with placeholders or user inputs
+            for (let i = 0; i < parts.length; i++) {
+                displayHTML.push(`<span class="text-gray-800">${parts[i]}</span>`);
+                
+                if (i < parts.length - 1) {
+                    if (inputs[i]) {
+                        // Show user input
+                        displayHTML.push(`<span class="bg-blue-100 text-blue-800 px-2 py-1 rounded font-medium">${inputs[i]}</span>`);
+                    } else {
+                        // Show empty placeholder
+                        displayHTML.push(`<span class="bg-gray-100 text-gray-500 px-2 py-1 rounded border-2 border-dashed border-gray-300">___</span>`);
+                    }
+                }
+            }
+            
+            rowElement.innerHTML = displayHTML.join('');
+        }
+
+        /**
+         * Update visual focus indicator for current row
+         * Manages focus styling and accessibility attributes
+         */
+        function updateRowFocus() {
+            const allRows = Elements.rowsContainer.querySelectorAll('[data-row-index]');
+            
+            allRows.forEach((row, index) => {
+                if (index === AppState.currentFocusIndex) {
+                    // Apply focus styling
+                    row.classList.add('ring-2', 'ring-blue-500', 'bg-blue-50', 'row-focused');
+                    row.setAttribute('aria-selected', 'true');
+                    row.focus();
+                } else {
+                    // Remove focus styling
+                    row.classList.remove('ring-2', 'ring-blue-500', 'bg-blue-50', 'row-focused');
+                    row.setAttribute('aria-selected', 'false');
+                }
+            });
+        }
+
+        /**
+         * Enter edit mode for the currently focused row
+         * Creates input fields for each placeholder in the template
+         */
+        function enterEditMode() {
+            if (AppState.isEditMode) return;
+            
+            AppState.isEditMode = true;
+            AppState.editingRowIndex = AppState.currentFocusIndex;
+            AppState.currentPlaceholderIndex = 0;
+            AppState.currentInputs = [];
+            
+            const rowElement = Elements.rowsContainer.querySelector(`[data-row-index="${AppState.editingRowIndex}"]`);
+            const template = AppState.templates[AppState.editingRowIndex];
+            
+            // Add edit mode styling
+            rowElement.classList.add('edit-mode');
+            
+            // Create interactive input version
+            createEditableRow(rowElement, template);
+            
+            showStatusMessage('Edit mode active. Type to fill placeholders, Enter for next, Esc to cancel.', 'info');
+        }
+
+        /**
+         * Create an editable version of the row with input fields
+         * @param {HTMLElement} rowElement - Row DOM element
+         * @param {string} template - Template string
+         */
+        function createEditableRow(rowElement, template) {
+            const parts = template.split('{}');
+            const editHTML = [];
+            
+            for (let i = 0; i < parts.length; i++) {
+                editHTML.push(`<span class="text-gray-800">${parts[i]}</span>`);
+                
+                if (i < parts.length - 1) {
+                    editHTML.push(`
+                        <input 
+                            type="text" 
+                            class="placeholder-input focus-enhanced" 
+                            data-placeholder-index="${i}"
+                            maxlength="20"
+                            placeholder="word"
+                            autocomplete="off"
+                            spellcheck="false"
+                        />
+                    `);
+                }
+            }
+            
+            rowElement.innerHTML = editHTML.join('');
+            
+            // Focus first input field
+            const firstInput = rowElement.querySelector('input[data-placeholder-index="0"]');
+            if (firstInput) {
+                firstInput.focus();
+            }
+            
+            // Attach input event listeners
+            attachInputEventListeners(rowElement);
+        }
+
+        /**
+         * Attach event listeners to input fields in edit mode
+         * @param {HTMLElement} rowElement - Row element containing inputs
+         */
+        function attachInputEventListeners(rowElement) {
+            const inputs = rowElement.querySelectorAll('input[data-placeholder-index]');
+            
+            inputs.forEach(input => {
+                // Handle Enter key to move to next placeholder
+                input.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handlePlaceholderComplete(input);
+                    } else if (e.key === 'Escape') {
+                        e.preventDefault();
+                        exitEditMode();
+                    }
+                });
+                
+                // Handle input validation (single words only)
+                input.addEventListener('input', (e) => {
+                    // Remove spaces and limit to single word
+                    let value = e.target.value.replace(/\s+/g, '');
+                    if (value !== e.target.value) {
+                        e.target.value = value;
+                        showStatusMessage('Only single words allowed in placeholders.', 'warning');
+                    }
+                });
+            });
+        }
+
+        /**
+         * Handle completion of a placeholder input
+         * @param {HTMLInputElement} input - The completed input field
+         */
+        function handlePlaceholderComplete(input) {
+            const placeholderIndex = parseInt(input.dataset.placeholderIndex);
+            const value = input.value.trim();
+            
+            if (!value) {
+                showStatusMessage('Please enter a word before continuing.', 'warning');
+                return;
+            }
+            
+            // Store the input value
+            AppState.currentInputs[placeholderIndex] = value;
+            
+            // Move to next placeholder or complete the row
+            const nextInput = input.parentElement.querySelector(`input[data-placeholder-index="${placeholderIndex + 1}"]`);
+            
+            if (nextInput) {
+                // Move to next placeholder
+                nextInput.focus();
+                AppState.currentPlaceholderIndex = placeholderIndex + 1;
+            } else {
+                // All placeholders filled, complete the row
+                completeRowEdit();
+            }
+        }
+
+        /**
+         * Complete the row editing process
+         * Assembles the final string and adds it to output
+         */
+        function completeRowEdit() {
+            const template = AppState.templates[AppState.editingRowIndex];
+            const parts = template.split('{}');
+            
+            // Assemble the completed string
+            let completedString = parts[0];
+            for (let i = 0; i < AppState.currentInputs.length; i++) {
+                completedString += AppState.currentInputs[i] + (parts[i + 1] || '');
+            }
+            
+            // Add to completed rows
+            AppState.completedRows.push(completedString);
+            updateOutputTextarea();
+            
+            // Reset the row to its template state
+            exitEditMode();
+            
+            showStatusMessage(`Row completed: "${completedString}"`, 'success');
+        }
+
+        /**
+         * Exit edit mode and restore row to template state
+         */
+        function exitEditMode() {
+            if (!AppState.isEditMode) return;
+            
+            const rowElement = Elements.rowsContainer.querySelector(`[data-row-index="${AppState.editingRowIndex}"]`);
+            const template = AppState.templates[AppState.editingRowIndex];
+            
+            // Remove edit mode styling
+            rowElement.classList.remove('edit-mode');
+            
+            // Restore template display
+            updateRowDisplay(rowElement, template, []);
+            
+            // Reset state
+            AppState.isEditMode = false;
+            AppState.editingRowIndex = -1;
+            AppState.currentPlaceholderIndex = 0;
+            AppState.currentInputs = [];
+            
+            // Restore focus to the row
+            updateRowFocus();
+            
+            showStatusMessage('Edit mode cancelled. Row restored to template.', 'info');
+        }
+
+        /**
+         * Update the output textarea with all completed rows
+         */
+        function updateOutputTextarea() {
+            Elements.outputTextarea.value = AppState.completedRows.join('\n');
+            
+            // Scroll to bottom to show latest addition
+            Elements.outputTextarea.scrollTop = Elements.outputTextarea.scrollHeight;
+        }
+
+        /**
+         * Copy all completed rows to clipboard
+         */
+        async function copyToClipboard() {
+            if (AppState.completedRows.length === 0) {
+                showStatusMessage('No completed rows to copy.', 'warning');
+                return;
+            }
+            
+            try {
+                await navigator.clipboard.writeText(Elements.outputTextarea.value);
+                showStatusMessage(`Copied ${AppState.completedRows.length} rows to clipboard.`, 'success');
+            } catch (err) {
+                // Fallback for older browsers
+                Elements.outputTextarea.select();
+                document.execCommand('copy');
+                showStatusMessage('Copied to clipboard (fallback method).', 'success');
+            }
+        }
+
+        /**
+         * Clear all completed rows and reset all template rows
+         */
+        function clearAll() {
+            if (AppState.completedRows.length === 0) {
+                showStatusMessage('Nothing to clear.', 'info');
+                return;
+            }
+            
+            // Exit edit mode if active
+            if (AppState.isEditMode) {
+                exitEditMode();
+            }
+            
+            // Clear completed rows
+            AppState.completedRows = [];
+            updateOutputTextarea();
+            
+            // Reset all template rows to their original state
+            const allRows = Elements.rowsContainer.querySelectorAll('[data-row-index]');
+            allRows.forEach((row, index) => {
+                updateRowDisplay(row, AppState.templates[index], []);
+            });
+            
+            showStatusMessage('All rows cleared and templates reset.', 'success');
+        }
+
+        /**
+         * Show status message to user
+         * @param {string} message - Message to display
+         * @param {string} type - Message type: 'info', 'success', 'warning', 'error'
+         */
+        function showStatusMessage(message, type = 'info') {
+            const colors = {
+                info: 'text-blue-600',
+                success: 'text-green-600',
+                warning: 'text-yellow-600',
+                error: 'text-red-600'
+            };
+            
+            Elements.statusMessage.textContent = message;
+            Elements.statusMessage.className = `mt-3 text-sm ${colors[type]}`;
+            
+            // Clear message after 3 seconds for non-error messages
+            if (type !== 'error') {
+                setTimeout(() => {
+                    Elements.statusMessage.textContent = '';
+                }, 3000);
+            }
+        }
+
+        /**
+         * Attach all event listeners for the application
+         */
+        function attachEventListeners() {
+            // Keyboard navigation for rows
+            document.addEventListener('keydown', handleGlobalKeydown);
+            
+            // Row click handlers
+            Elements.rowsContainer.addEventListener('click', (e) => {
+                const rowElement = e.target.closest('[data-row-index]');
+                if (rowElement && !AppState.isEditMode) {
+                    AppState.currentFocusIndex = parseInt(rowElement.dataset.rowIndex);
+                    updateRowFocus();
+                }
+            });
+            
+            // Button event listeners
+            Elements.copyBtn.addEventListener('click', copyToClipboard);
+            Elements.clearBtn.addEventListener('click', clearAll);
+            
+            // Prevent default behavior on row elements
+            Elements.rowsContainer.addEventListener('keydown', (e) => {
+                const rowElement = e.target.closest('[data-row-index]');
+                if (rowElement && (e.key === 'Enter' || e.key === ' ')) {
+                    e.preventDefault();
+                }
+            });
+        }
+
+        /**
+         * Handle global keyboard events for navigation and editing
+         * @param {KeyboardEvent} e - Keyboard event
+         */
+        function handleGlobalKeydown(e) {
+            // Don't interfere with input fields or other controls
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'BUTTON') {
+                return;
+            }
+            
+            if (AppState.isEditMode) {
+                // Handle edit mode keys
+                if (e.key === 'Escape') {
+                    e.preventDefault();
+                    exitEditMode();
+                }
+                return;
+            }
+            
+            // Handle navigation keys
+            switch (e.key) {
+                case 'ArrowUp':
+                    e.preventDefault();
+                    if (AppState.currentFocusIndex > 0) {
+                        AppState.currentFocusIndex--;
+                        updateRowFocus();
+                    }
+                    break;
+                    
+                case 'ArrowDown':
+                    e.preventDefault();
+                    if (AppState.currentFocusIndex < AppState.templates.length - 1) {
+                        AppState.currentFocusIndex++;
+                        updateRowFocus();
+                    }
+                    break;
+                    
+                case 'Enter':
+                case ' ':
+                    e.preventDefault();
+                    enterEditMode();
+                    break;
+            }
+        }
+
+        // Initialize the application when DOM is loaded
+        document.addEventListener('DOMContentLoaded', initializeApp);
+    </script>
 </body>
 </html>
